@@ -120,7 +120,8 @@ The v1 profile uses:
 The profile pins canonical encodings, byte order, HPKE `info`, AEAD associated
 data, SLIP-0039 parameters, and fixtures. Implementations use reviewed
 libraries with cross-platform vectors; they do not implement polynomial
-arithmetic in UI code.
+arithmetic in UI code. The byte-level binding is proposed in
+[Recovery-Trustee-Shamir-Binding.md](Recovery-Trustee-Shamir-Binding.md).
 
 ### 4.2 Artifact encryption
 
@@ -315,8 +316,9 @@ Each trustee:
    unsolicited or replayed enrollment;
 4. accepts only the current enrollment sequence for that enrollment and
    authorization key, refusing replay or rollback;
-5. validates the SLIP-0039 checksum, member threshold, member count, and member
-   index against the signed envelope;
+5. validates the SLIP-0039 checksum, member threshold, and member index
+   against the signed envelope, and checks both against the signed member
+   count, which a share does not encode;
 6. confirms any invitation or human relationship through the prearranged
    independent path rather than trusting display text; and
 7. stores the share under its local protection and verifies durable read-back
