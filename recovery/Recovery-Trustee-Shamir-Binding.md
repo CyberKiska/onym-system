@@ -25,11 +25,11 @@ The document distinguishes:
 - **rationale**, which explains a choice that is not forced; and
 - **gaps**, where the binding knowingly stops short.
 
-**Status.** A reference trustee core implements §§2–7 and produced the
-vectors of §8. Its source will be linked here when published. A conforming
-client, the trustee's storage and transport, and a deployment do not exist
-yet. The binding identifier is `draft-1` until maintainers adopt it or assign
-another (§12).
+**Status.** A reference trustee implements §§2–7, durable storage
+included, and produced the vectors of §8. Its source will be linked here
+when published. A conforming client, the trustee's HTTP transport and a
+deployment do not exist yet. The binding identifier is `draft-1` until
+maintainers adopt it or assign another (§12).
 
 ## 1. Problem
 
@@ -221,6 +221,55 @@ The abstract §5.8 object for an approval:
 
 `expiresAt` is the session's.
 
+### 6.6 Requests
+
+Every request is one canonical object with `requestVersion: 1` and an
+`operation`:
+
+| Operation | Authorized by | Request ID |
+|---|---|---|
+| `issue-challenge` | An operator-issued invitation code (64 hex), redeemed for a single-use challenge valid for 15 minutes | — |
+| `enroll` | The consumed challenge and the envelope's `holderAuthorization`. Carries `context` (§6.2), `trusteeKeyId`, `sealedEnvelope` and `protectedArtifact` | The challenge |
+| `begin-recovery` | `candidateProof`. Carries this trustee's `session` variant (§6.4) | `sessionId` |
+| `read-enrollment`, `revoke-enrollment`, `close-enrollment` | A signed request by the enrollment's trustee-scoped key | `requestId` |
+| `read-recovery` | A signed request by the session proof key | `requestId` |
+| `cancel-recovery` | A signed request by the proof key (`"by": "candidate"`) or the trustee-scoped key (`"by": "holder"`, a veto) | `requestId` |
+
+A signed request carries `requestVersion`, `operation`, `requestId` (64 hex),
+`componentId`, `issuedAt`, exactly one of `enrollmentId` or `sessionId`,
+`by` for cancellation only, and `signature` over everything else.
+
+**Binding requirement, retries and replay:**
+
+- A first acceptance needs `issuedAt` within the trustee's clock skew.
+- An identical retry of a state change returns the identical receipt at any
+  age. A different body under the same request ID is `request_conflict`.
+- Reads are single use. A replay is refused while its nonce is kept (at
+  least twice the skew) and by `issuedAt` afterwards.
+- `componentId` stops a request signed with the session proof key, which
+  every trustee sees, from being replayed at another trustee.
+
+### 6.7 Receipts
+
+One signed shape: abstract §5.9, with the Shamir §5.3 fields for `enroll`.
+
+- **Every receipt:** `receiptVersion`, `operation`, `requestId`,
+  `componentId`, `implementationProfileId`, `enrollmentId`,
+  `enrollmentSequence`, `policyDigest`, `oldState`, `newState`, `recordedAt`,
+  `expiresAt`, and `signature` by the operator key.
+- **`enroll`:** `artifactId`, `artifactDigest`, `slot`,
+  `sealedContributionDigest` and `storageClass`.
+- **Session operations:** `sessionId`, `cooldownEndsAt`,
+  `destinationKeysDigest`, `remainingAttempts` (begin), `reason` (a §15 code
+  for a veto or refusal), and `contribution`, the signed §6.5 object once
+  released.
+- **`read-enrollment`:** `sessions`, the holder-poll notices.
+
+States use the contract's names: `active`, `revoked`, `closed`, `expired`
+for an enrollment; `cooling_down`, `collecting`, `cancelled`, `refused`,
+`expired`, `finalized` for a session. A trustee signs a receipt only after
+the state it reports is committed and read back.
+
 ## 7. Trustee verification order
 
 **Binding requirement.** Anything a caller can learn before authorization
@@ -228,8 +277,12 @@ must not depend on whether an enrollment exists.
 
 **Enrollment:**
 
-1. Profile identifier (`unsupported_profile`), formats, and
-   `trusteeComponentId` equal to this trustee.
+1. The challenge: issued by this trustee, unused, unexpired, for an open
+   invitation (`invalid_enrollment`). A known enrollment ID is refused:
+   `enrollment_revoked` for a tombstone, `stale_enrollment_sequence` for an
+   equal or lower sequence. Then the profile identifier
+   (`unsupported_profile`), formats, and `trusteeComponentId` equal to this
+   trustee.
 2. Open with the rebuilt `info`, then parse with duplicate keys refused.
 3. Verify `holderAuthorization` with `authorizationPublicKey`. Require the
    envelope to repeat every context binding, the key's digest included
@@ -251,13 +304,15 @@ must not depend on whether an enrollment exists.
 2. Bindings to the current sequence. On a mismatch, give the uniform refusal
    `invalid_request`.
 3. The attempt budget (`recovery_rate_limited`).
-4. The factor (`invalid_candidate_factor`), which counts as an attempt.
-5. The session must outlive the cooldown, which starts at trustee time. It
-   must also stay inside the policy lifetime and the enrollment term.
-6. At release, the release predicate.
+4. Timing: the session must outlive the cooldown, which starts at trustee
+   time, and stay inside the policy lifetime and the enrollment term.
+5. The factor (`invalid_candidate_factor`). Only from this step does the
+   request count as an attempt, whether the factor holds or not.
+6. At release, the release predicate, inside the transaction that persists
+   the contribution. Later reads resend the same bytes until a terminal
+   state or expiry.
 
-The reference core implements every step whose data it has. The attempt
-budget and challenge freshness need storage and are pending.
+The reference implementation follows this order.
 
 ## 8. Test vectors
 
@@ -354,13 +409,12 @@ the contract's version fields and gain no new ones. A trustee declares
 
 Gaps this draft knowingly leaves open:
 
-- the HTTP mapping and request authentication;
-- receipt shapes;
+- the HTTP mapping: routes, status codes and body limits;
 - the manifest schema for the X25519 key, `trusteeKeyId` and limits;
 - activation and rotation signaling;
 - management authority after recovery;
 - whether a terminal session state blocks re-serving a contribution already
-  delivered;
+  delivered (this draft: it does);
 - vectors for the artifact AAD and the recovery map;
 - notification channels beyond holder poll;
 - freshness assurance for restored trustees.
