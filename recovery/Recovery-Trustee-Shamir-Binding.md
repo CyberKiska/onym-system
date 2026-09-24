@@ -25,11 +25,13 @@ The document distinguishes:
 - **rationale**, which explains a choice that is not forced; and
 - **gaps**, where the binding knowingly stops short.
 
-**Status.** A reference trustee implements §§2–7, durable storage
-included, and produced the vectors of §8. Its source will be linked here
-when published. A conforming client, the trustee's HTTP transport and a
-deployment do not exist yet. The binding identifier is `draft-1` until
-maintainers adopt it or assign another (§12).
+**Status.** A reference trustee implements §§2–7 with durable storage and
+the transport of §6.8, and produced the vectors of §8. A demo client
+exercises it end to end: 2-of-3 enrollment, veto, release after the
+cooldown and reconstruction, against three local trustees. Both will be
+linked here when published. A native Onym client and a public deployment do
+not exist yet. The binding identifier is `draft-1` until maintainers adopt
+it or assign another (§12).
 
 ## 1. Problem
 
@@ -106,7 +108,8 @@ authority migration.
 | `sealedContributionDigest` | SHA-256 of the raw sealed bytes |
 
 The profile's `identityBindingCommitment` and artifact AAD (Shamir §4.2)
-use the same array encoding. Their vectors are pending a conforming client.
+use the same array encoding. The demo client computes both; fixed vectors
+are pending.
 
 ## 5. HPKE framing
 
@@ -270,6 +273,45 @@ for an enrollment; `cooling_down`, `collecting`, `cancelled`, `refused`,
 `expired`, `finalized` for a session. A trustee signs a receipt only after
 the state it reports is committed and read back.
 
+`issue-challenge` answers with `challenge`, `componentId`, `expiresAt` and
+`trusteeKeyId`, unsigned: the challenge is only as good as the `enroll`
+receipt that consumes it.
+
+### 6.8 Transport and manifest
+
+**Proposed.** Each trustee serves one HTTPS origin:
+
+| Route | Purpose |
+|---|---|
+| `GET /manifest.json` | The signed manifest |
+| `GET /health` | Liveness only; nothing per enrollment |
+| `POST /v1/trustee` | One §6.6 request; the body is its receipt or challenge, or `{"error": "<code>"}` |
+
+Private identifiers travel only in request bodies, never in paths or query
+strings. The `error` code is normative; the HTTP status is a class: 400
+invalid, 409 state conflict, 429 attempts spent, 501 declared unsupported,
+503 unable to decide safely.
+
+The manifest is the abstract §5.3 object, with `operator` set to
+`onym:key:<hex>` of the Ed25519 key that signs the manifest, receipts and
+contributions. It adds:
+
+- `bindingVersion`;
+- `enrollmentKey`: `suite`, `publicKey` (64 hex) and `trusteeKeyId`;
+- `storageClass`, as enrollment receipts declare it;
+- `limits`: clock skew, cooldown bounds, session lifetime and enrollment
+  term in seconds, maximum attempts, and artifact and request sizes in bytes;
+- `operations` served, and `unsupportedOperations` mapping each refused
+  contract operation to the code it returns;
+- `offers`, inline as in whitepaper §16. A free offer still declares the
+  abstract §12 terms: service, fees, lapse, export, retention, jurisdiction
+  and complaint path.
+
+A client refuses a manifest whose signature, profile, binding version or
+`trusteeKeyId` does not check, or whose `validUntil` has passed. Trustees
+that declare the same `trustDomain` are not independent, and the client
+says so.
+
 ## 7. Trustee verification order
 
 **Binding requirement.** Anything a caller can learn before authorization
@@ -403,20 +445,23 @@ Two sources need care:
 
 ## 11. Compatibility, migration and gaps
 
-No conforming implementation exists yet, so nothing migrates. Objects keep
-the contract's version fields and gain no new ones. A trustee declares
+Nothing is deployed yet, so nothing migrates. Objects keep the contract's
+version fields and gain no new ones. A trustee declares
 `bindingVersion: "draft-1"` in its manifest.
 
 Gaps this draft knowingly leaves open:
 
-- the HTTP mapping: routes, status codes and body limits;
-- the manifest schema for the X25519 key, `trusteeKeyId` and limits;
+- adoption of the transport and manifest additions of §6.8, or a common
+  HTTP binding shared across seats;
 - activation and rotation signaling;
 - management authority after recovery;
 - whether a terminal session state blocks re-serving a contribution already
   delivered (this draft: it does);
-- vectors for the artifact AAD and the recovery map;
-- notification channels beyond holder poll;
+- vectors for the artifact AAD and the recovery map; the demo client binds
+  the map to `canonical(implementationProfileId, mapId)`;
+- notification channels beyond holder poll, and whether a holder-poll notice
+  distinguishes a released contribution from a pending one (this draft:
+  both read `collecting`);
 - freshness assurance for restored trustees.
 
 ## 12. Authority, revenue, IP and licensing
