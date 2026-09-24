@@ -85,7 +85,7 @@ so a client needs no custom serializer.
 | Public keys | 64 lowercase hex digits of the raw 32 bytes | `authorizationPublicKey`, `encryptionPublicKey`, `proofPublicKey`, factor keys |
 | Digests | `sha256:` followed by 64 lowercase hex digits | `policyDigest`, `identityBindingCommitment`, `artifactDigest`, `destinationKeysDigest`, `authorizationKeyDigest`, `trusteeKeyId` |
 | Signatures and ciphertexts | Standard padded base64 (RFC 4648 §4), strict: missing padding and non-zero trailing bits are refused | `holderAuthorization`, `candidateProof`, `signature`, `sealedEnvelope`, `sealedContribution`, `ciphertext` |
-| Timestamps | Exactly `YYYY-MM-DDTHH:MM:SSZ` | `createdAt`, `expiresAt`, `requestedAt`, `decidedAt` |
+| Timestamps | Exactly `YYYY-MM-DDTHH:MM:SSZ`: no fraction, offset or leap second. A reader requires the text to equal the formatting of the whole seconds it denotes | `createdAt`, `expiresAt`, `requestedAt`, `decidedAt` |
 | Durations | `P[nD][T[nH][nM][nS]]`, at most six digits per component; no years, months or weeks | `cooldown`, `sessionLifetime` |
 | Integers | JSON integers | `enrollmentSequence` (1 to 2^53 − 1), `memberIndex` (0–15), `memberThreshold`, `memberCount`, `maximumAttempts` |
 | Component IDs | `onym:component:` followed by 1–64 of `[a-z0-9-]` | `trusteeComponentId`, `componentId` |
@@ -263,10 +263,18 @@ One signed shape: abstract §5.9, with the Shamir §5.3 fields for `enroll`.
 - **`enroll`:** `artifactId`, `artifactDigest`, `slot`,
   `sealedContributionDigest` and `storageClass`.
 - **Session operations:** `sessionId`, `cooldownEndsAt`,
-  `destinationKeysDigest`, `remainingAttempts` (begin), `reason` (a §15 code
-  for a veto or refusal), and `contribution`, the signed §6.5 object once
-  released.
-- **`read-enrollment`:** `sessions`, the holder-poll notices.
+  `destinationKeysDigest`, `remainingAttempts` and `evidenceDigest` (begin:
+  the digest of the canonical session variant evaluated), `reason` (a §15
+  code for a veto or refusal), and `contribution`, the signed §6.5 object
+  once released.
+- **`read-enrollment`:** `sessions`, the holder-poll notices: `sessionId`,
+  `state`, `reason`, `released` (this trustee's contribution has left and
+  a veto can no longer recall it), `cooldownEndsAt` and `expiresAt`.
+
+A `begin-recovery` that reached factor evaluation spent an attempt, so a
+failed factor is a signed receipt with `newState: refused` and `reason:
+invalid_candidate_factor`, not an unsigned error. Unbound or malformed
+requests stay uniform unsigned errors.
 
 States use the contract's names: `active`, `revoked`, `closed`, `expired`
 for an enrollment; `cooling_down`, `collecting`, `cancelled`, `refused`,
@@ -312,6 +320,13 @@ A client refuses a manifest whose signature, profile, binding version or
 that declare the same `trustDomain` are not independent, and the client
 says so.
 
+The manifest a client enrolled with stays in its recovery map as evidence
+of the enrolled keys, and may expire there. Before using a trustee again,
+the client fetches its current manifest and requires the same
+`componentId`, `operator` and `trusteeKeyId`. This draft defines no key
+rotation, so a change is refused, never trusted. Responses to `POST
+/v1/trustee` carry `Cache-Control: no-store`.
+
 ## 7. Trustee verification order
 
 **Binding requirement.** Anything a caller can learn before authorization
@@ -320,9 +335,7 @@ must not depend on whether an enrollment exists.
 **Enrollment:**
 
 1. The challenge: issued by this trustee, unused, unexpired, for an open
-   invitation (`invalid_enrollment`). A known enrollment ID is refused:
-   `enrollment_revoked` for a tombstone, `stale_enrollment_sequence` for an
-   equal or lower sequence. Then the profile identifier
+   invitation (`invalid_enrollment`). Then the profile identifier
    (`unsupported_profile`), formats, and `trusteeComponentId` equal to this
    trustee.
 2. Open with the rebuilt `info`, then parse with duplicate keys refused.
@@ -337,6 +350,11 @@ must not depend on whether an enrollment exists.
    - index or threshold differing from the envelope: `invalid_enrollment`.
 7. Timestamps, then the policy (`invalid_policy`).
 8. The artifact digest and header (`artifact_mismatch`).
+9. Only now, a known enrollment ID. If the envelope's
+   `authorizationPublicKey` is not the key that holds it, the answer is
+   `invalid_enrollment` and the challenge and invitation are spent, as an
+   enrollment would spend them. Otherwise: `enrollment_revoked` for a
+   tombstone, `stale_enrollment_sequence` for an equal or lower sequence.
 
 **Recovery:**
 
@@ -432,8 +450,10 @@ Two sources need care:
   Evidence names its session, trustee and slot. Stored ciphertexts open only
   under their own bindings.
 - **Errors do not enumerate.** Refusals before authorization are uniform.
-  Stale, revoked or expired state is disclosed only to a caller that presents
-  the complete private bindings of an existing sequence.
+  An enrollment's stale, revoked or expired state is disclosed only to a
+  caller holding its trustee-scoped key. A caller with an unused invitation
+  and a well-formed envelope still learns that an enrollment ID is taken,
+  at the cost of that invitation; IDs are random 256-bit values.
 - **Known limits:**
   - holder-poll notices reach the holder only while an enrolled device polls;
   - whoever holds the healthy device's scoped key can veto, which denies
@@ -459,9 +479,11 @@ Gaps this draft knowingly leaves open:
   delivered (this draft: it does);
 - vectors for the artifact AAD and the recovery map; the demo client binds
   the map to `canonical(implementationProfileId, mapId)`;
-- notification channels beyond holder poll, and whether a holder-poll notice
-  distinguishes a released contribution from a pending one (this draft:
-  both read `collecting`);
+- notification channels beyond holder poll;
+- receipts name `implementationProfileId` where abstract §5.9 asks for
+  policy and implementation-profile digests, and an enroll receipt's
+  `active` means local custody accepted, not the aggregate activation that
+  needs all n receipts;
 - freshness assurance for restored trustees.
 
 ## 12. Authority, revenue, IP and licensing
