@@ -28,10 +28,11 @@ The document distinguishes:
 **Status.** A reference trustee implements §§2–7 with durable storage and
 the transport of §6.8, and produced the vectors of §8. A demo client
 exercises it end to end: 2-of-3 enrollment, veto, release after the
-cooldown and reconstruction, against three local trustees. Both will be
-linked here when published. A native Onym client and a public deployment do
-not exist yet. The binding identifier is `draft-1` until maintainers adopt
-it or assign another (§12).
+cooldown and reconstruction, against three local trustees, and again over
+TLS against a container deployment. Both will be linked here when
+published. A native Onym client and a public deployment do not exist yet.
+The binding identifier is `draft-1` until maintainers adopt it or assign
+another (§12).
 
 ## 1. Problem
 
@@ -298,7 +299,10 @@ receipt that consumes it.
 Private identifiers travel only in request bodies, never in paths or query
 strings. The `error` code is normative; the HTTP status is a class: 400
 invalid, 409 state conflict, 429 attempts spent, 501 declared unsupported,
-503 unable to decide safely.
+503 unable to decide safely. A response without an `error` code, such as a
+proxy's 502, 504 or 429, is a transport failure, not the trustee's
+answer: a client retries it within the session and never counts it as a
+refusal.
 
 The manifest is the abstract §5.3 object, with `operator` set to
 `onym:key:<hex>` of the Ed25519 key that signs the manifest, receipts and
