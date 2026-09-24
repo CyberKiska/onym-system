@@ -1,6 +1,6 @@
 ---
 status: draft
-proposed: @CyberKiska
+proposed: "@CyberKiska"
 date: 23.09.2026
 ---
 
@@ -25,14 +25,13 @@ The document distinguishes:
 - **rationale**, which explains a choice that is not forced; and
 - **gaps**, where the binding knowingly stops short.
 
-**Status.** A partial reference trustee implements the covered path in §§2–7
+**Status.** A [partial reference trustee](https://github.com/CyberKiska/onym-recovery-trustee) implements the covered path in §§2–7
 with durable storage and the transport of §6.8, and produced the vectors of
 §8. A demo client exercises it end to end: 2-of-3 enrollment, veto, release
 after the cooldown and reconstruction, against three local trustees and
-again over TLS against a container deployment. Both will be linked here when
-published. A native Onym client and a public deployment do not exist yet.
-The binding identifier is `draft-1` until maintainers adopt it or assign
-another (§12).
+again over TLS against a container deployment.A native Onym client and a
+public deployment do not exist yet. The binding identifier is `draft-1`
+until maintainers adopt it or assign another (§12).
 
 ## 1. Problem
 
@@ -400,7 +399,7 @@ The enrollment `info` for that envelope is:
 ["onym-shamir-enrollment-v1","onym:recovery-implementation:shamir-trustees-slip39-v1","e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",1,"sha256:87f87bbed1f1873c2a951c9624a5919d8b0fdad9a53f7f630a35150ffe942128","a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1","sha256:5c5de4fcce3d63f1a23dbf13de998c40f24891b9c8deeab70160d16c7e7636a1","onym:component:reference-trustee","5151515151515151515151515151515151515151515151515151515151515151","c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1","sha256:10ba682c8ad13513971e8b56881aab8bd702bb807796eca81932c735a94d6e6d"]
 ```
 
-The complete fixtures are prepared with the reference implementation:
+The [complete fixtures](https://github.com/CyberKiska/onym-recovery-trustee/tree/main/tests/fixtures) are prepared with the reference implementation:
 envelope, artifact, enrollment context with sealed envelope, session, signed
 contribution, and every expected digest and tuple. An independent check with
 pyca/cryptography and Trezor's `shamir-mnemonic` confirmed all of them:
