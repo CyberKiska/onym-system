@@ -25,11 +25,11 @@ The document distinguishes:
 - **rationale**, which explains a choice that is not forced; and
 - **gaps**, where the binding knowingly stops short.
 
-**Status.** A reference trustee implements §§2–7 with durable storage and
-the transport of §6.8, and produced the vectors of §8. A demo client
-exercises it end to end: 2-of-3 enrollment, veto, release after the
-cooldown and reconstruction, against three local trustees, and again over
-TLS against a container deployment. Both will be linked here when
+**Status.** A partial reference trustee implements the covered path in §§2–7
+with durable storage and the transport of §6.8, and produced the vectors of
+§8. A demo client exercises it end to end: 2-of-3 enrollment, veto, release
+after the cooldown and reconstruction, against three local trustees and
+again over TLS against a container deployment. Both will be linked here when
 published. A native Onym client and a public deployment do not exist yet.
 The binding identifier is `draft-1` until maintainers adopt it or assign
 another (§12).
