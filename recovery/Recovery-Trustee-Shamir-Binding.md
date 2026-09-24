@@ -1,6 +1,6 @@
 ---
 status: draft
-proposed: <author>
+proposed: @CyberKiska
 date: 23.09.2026
 ---
 
