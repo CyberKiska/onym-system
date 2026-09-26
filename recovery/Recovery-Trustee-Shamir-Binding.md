@@ -246,7 +246,12 @@ A signed request carries `requestVersion`, `operation`, `requestId` (64 hex),
 
 - A first acceptance needs `issuedAt` within the trustee's clock skew.
 - An identical retry of a state change returns the identical receipt at any
-  age. A different body under the same request ID is `request_conflict`.
+  age. The one exception is `enroll`: its receipt is repeated only while the
+  custody it created is live. A retry after revocation or closure gets
+  `enrollment_revoked`, after supersession `stale_enrollment_sequence`, and
+  after the term ends `enrollment_expired`, never a receipt that reads as
+  live custody. A different body under the same request ID is
+  `request_conflict`.
 - Reads are single use. A replay is refused while its nonce is kept (at
   least twice the skew) and by `issuedAt` afterwards.
 - `componentId` stops a request signed with the session proof key, which
@@ -280,6 +285,10 @@ States use the contract's names: `active`, `revoked`, `closed`, `expired`
 for an enrollment; `cooling_down`, `collecting`, `cancelled`, `refused`,
 `expired`, `finalized` for a session. A trustee signs a receipt only after
 the state it reports is committed and read back.
+
+A receipt records a decision at its `recordedAt`. A retried one is
+therefore historical: a client learns current state only from a fresh
+`read-enrollment` or `read-recovery`.
 
 `issue-challenge` answers with `challenge`, `componentId`, `expiresAt` and
 `trusteeKeyId`, unsigned: the challenge is only as good as the `enroll`
@@ -315,9 +324,10 @@ contributions. It adds:
   term in seconds, maximum attempts, and artifact and request sizes in bytes;
 - `operations` served, and `unsupportedOperations` mapping each refused
   contract operation to the code it returns;
-- `offers`, inline as in whitepaper §16. A free offer still declares the
-  abstract §12 terms: service, fees, lapse, export, retention, jurisdiction
-  and complaint path.
+- `offers`, inline as in whitepaper §16, each with `offerId`, `model` and a
+  `service` object, the spine Onym clients decode. A free offer still
+  declares the abstract §12 terms: service, fees, lapse, export, retention,
+  jurisdiction and complaint path.
 
 A client refuses a manifest whose signature, profile, binding version or
 `trusteeKeyId` does not check, or whose `validUntil` has passed. Trustees
