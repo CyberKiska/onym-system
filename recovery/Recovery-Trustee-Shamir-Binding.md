@@ -293,6 +293,7 @@ receipt that consumes it.
 |---|---|
 | `GET /manifest.json` | The signed manifest |
 | `GET /health` | Liveness only; nothing per enrollment |
+| `GET /ready` | Optional: `{"status": "ready"}`, or 503 with a reason and nothing per enrollment |
 | `POST /v1/trustee` | One §6.6 request; the body is its receipt or challenge, or `{"error": "<code>"}` |
 
 Private identifiers travel only in request bodies, never in paths or query
@@ -329,6 +330,32 @@ the client fetches its current manifest and requires the same
 `componentId`, `operator` and `trusteeKeyId`. This draft defines no key
 rotation, so a change is refused, never trusted. Responses to `POST
 /v1/trustee` carry `Cache-Control: no-store`.
+
+*Recommendation.* A trustee bounds how many requests it admits at once and
+refuses the rest at once with `temporarily_unavailable`. It keeps capacity
+for `read-enrollment`, `cancel-recovery`, `revoke-enrollment` and
+`close-enrollment`, so a flood of other requests cannot keep a holder from
+seeing or stopping a recovery. Per-client limits belong in front of it.
+
+### 6.9 Time
+
+**Binding requirement.** A trustee's decisions use its own time, never a
+caller's:
+
+- **It never runs backwards.** The trustee records the highest time any
+  committed change used. While its clock reads earlier, it refuses what
+  grants or uses authority (`issue-challenge`, `enroll`, `begin-recovery`,
+  and release through `read-recovery`) with `temporarily_unavailable`.
+- **Protection still works.** Operations that only report or remove
+  authority (`read-enrollment`, `cancel-recovery`, `revoke-enrollment`,
+  `close-enrollment`) run at the recorded time instead, and §6.6 freshness
+  is checked against it. A clock set back must not delay a veto.
+- **It never runs faster than elapsed time.** While it runs, a trustee's time
+  advances no faster than a monotonic clock started with it, plus a few
+  seconds of slack, so a clock stepped forward cannot shorten a cooldown.
+
+*Gap.* A clock set forward before the trustee starts, or a trustee restored
+from an old snapshot, cannot be detected from local state alone (§10, §11).
 
 ## 7. Trustee verification order
 
