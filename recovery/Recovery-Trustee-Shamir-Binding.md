@@ -31,7 +31,10 @@ with durable storage and the transport of §6.8, and produced the vectors of
 after the cooldown and reconstruction, against three local trustees and
 again over TLS against a container deployment.A native Onym client and a
 public deployment do not exist yet. The binding identifier is `draft-1`
-until maintainers adopt it or assign another (§12).
+until maintainers adopt it or assign another (§12). §13 proposes, without
+implementing, what a draft-2 would add: activation and rotation,
+finalization, drills and export, late admission, inbox notices and
+freshness anchoring.
 
 ## 1. Problem
 
@@ -366,6 +369,7 @@ caller's:
 
 *Gap.* A clock set forward before the trustee starts, or a trustee restored
 from an old snapshot, cannot be detected from local state alone (§10, §11).
+§13.6 proposes the rules an external freshness anchor must follow.
 
 ## 7. Trustee verification order
 
@@ -538,18 +542,22 @@ Gaps this draft knowingly leaves open:
 
 - adoption of the transport and manifest additions of §6.8, or a common
   HTTP binding shared across seats;
-- activation and rotation signaling;
-- management authority after recovery;
+- activation and rotation signaling (proposed in §13.1);
+- management authority after recovery (§13.1 proposes the new sequence's
+  key);
+- finalization, drills and export (§13.2, §13.3);
+- a first admission later than the clock skew allows (§13.4);
 - whether a terminal session state blocks re-serving a contribution already
   delivered (this draft: it does);
 - vectors for the artifact AAD and the recovery map; the demo client binds
   the map to `canonical(implementationProfileId, mapId)`;
-- notification channels beyond holder poll;
+- notification channels beyond holder poll (§13.5);
 - receipts name `implementationProfileId` where abstract §5.9 asks for
   policy and implementation-profile digests, and an enroll receipt's
   `active` means local custody accepted, not the aggregate activation that
-  needs all n receipts;
-- freshness assurance for restored trustees.
+  needs all n receipts (§13.1 proposes `pending_receipts`);
+- freshness assurance for restored trustees (§13.6 states the rules an
+  anchor must follow).
 
 ## 12. Authority, revenue, IP and licensing
 
@@ -560,7 +568,8 @@ bytes for authority the contracts already assign, and adds no party.
 
 - adopt this binding under the Shamir profile identifier, or assign a binding
   identifier;
-- approve or replace the first factor and notification profile of §6.1.
+- approve or replace the first factor and notification profile of §6.1;
+- adopt, amend or refuse each draft-2 proposal of §13.
 
 **IP and licensing.** This text is contributed under the terms the repository
 adopts; it has no licence file yet, so please state one. The reference
@@ -569,6 +578,193 @@ implementation is MIT. Its vendored test data keeps its own terms:
 - Trezor's SLIP-0039 vectors and word list (MIT);
 - Onym Discovery's canonical-JSON fixtures (MIT);
 - one CFRG HPKE vector.
+
+## 13. Proposed for draft-2
+
+**Status.** Proposals: not implemented, and not part of draft-1
+conformance. They answer the gaps of §11. Each lands with vectors and a
+reference implementation before it is recommended. A trustee that adopts
+them declares `bindingVersion: "draft-2"`, which a draft-1 client refuses
+(§6.8).
+
+### 13.1 Activation and rotation
+
+Abstract §7.1 separates holding custody (`pending_receipts`) from recovery
+authority (`active`), and replaces a sequence only once its successor is
+active. One trustee sees neither aggregate.
+
+*Rationale: superseding per trustee strands recovery.* Suppose a of n
+trustees have switched to the new sequence:
+- the old sequence has n − a releasable shares, and the new one a;
+- both are below t exactly when n − t < a < t;
+- that can happen whenever 2t − n ≥ 2: for 3-of-3, 3-of-4 and 4-of-5, never
+  for 2-of-3 or 3-of-5.
+
+**Proposal.** Each sequence passes three steps at each trustee, every one
+signed as a §6.6 request.
+
+1. **Prepare.**
+   - `rotate-enrollment` is signed with the current sequence's
+     authorization key. Its receipt has `newState: "rotating"` and carries a
+     `challenge`: single use, bound to `(enrollmentId, enrollmentSequence)`,
+     valid for 15 minutes.
+   - `enroll` for sequence k + 1 presents that challenge where a first
+     enrollment presents an invitation's.
+   - Every accepted sequence, a first one included, starts in
+     `pending_receipts`: the trustee holds it, but it cannot be released.
+2. **Activate.**
+   - `activate-enrollment` is signed with the new sequence's key. It names
+     `enrollmentSequence` and carries `receiptsDigest`: SHA-256 of
+     `canonical("onym-shamir-activation-v1", r1, …, rn)`, the n enroll
+     receipts as objects in policy order.
+   - The trustee cannot verify the digest and records it as the holder's
+     assertion. The sequence becomes `active`.
+   - An older sequence at this trustee stays releasable, and reads as
+     `rotating`.
+3. **Retire.**
+   - `retire-enrollment` is signed with the new sequence's key and names the
+     old `enrollmentSequence`. Until the new sequence is active here it is
+     refused with `enrollment_pending`.
+   - The old sequence becomes `superseded`: its envelope and artifact are
+     deleted, and its open sessions end with `stale_enrollment_sequence`.
+
+**Client rule.** The client:
+- persists each receipt before the next step;
+- retires only once it holds activation receipts from all n trustees of the
+  new set;
+- closes every trustee that left the set.
+
+**Invariant.** At every step, some sequence has at least t releasable
+shares:
+- before the first retirement, the old sequence has all n;
+- retiring starts only once the new sequence has all n, and each retirement
+  lowers the old one only;
+- a crash, a lost acknowledgement or a partition leaves the set in step 2
+  or 3, where both hold.
+
+The holder abandons a rotation by closing sequence k + 1. The cost is that
+the old sequence's factor and kit stay valid until they are retired.
+Authority after recovery passes to the new sequence's key.
+
+### 13.2 Finalize
+
+- `finalize-recovery` is signed with the session proof key. It is allowed
+  only once this trustee has released its contribution; before that it is
+  refused with `recovery_cooling_down`.
+- The session becomes `finalized`. Every other open session of the same
+  sequence at this trustee ends as `cancelled` with `recovery_refused`, and
+  each gets a notice.
+- It does not consume the factor: retirement (§13.1) ends the sequence's
+  authority. A client sends it only after durable import. It is an
+  assertion, never proof of reconstruction.
+
+### 13.3 Drill and export sessions
+
+The session gains `purpose`: `recovery`, `drill` or `export`. Because it is
+part of the session, `sessionCommitment` covers it.
+
+- **Holder approval.** For any purpose but `recovery`, the trustee's session
+  variant also carries `holderApproval`: an Ed25519 signature by the
+  enrollment's authorization key over
+  `canonical("onym-recovery-holder-approval-v1", sessionCommitment, componentId, slot, purpose)`.
+  Without it, a stolen kit could label an attack a drill.
+- **No shortcuts.** Every purpose gets the same factor check, cooldown,
+  notices and veto; notices name the purpose. A holder key alone never
+  releases anything.
+- **Budget.** Holder-approved sessions spend no attempt. At most one may be
+  open per sequence; another is refused with `recovery_rate_limited`.
+- **Bootstrap is separate.** A drill never finalizes or retires a sequence,
+  and it is not the bootstrap test that activation needs (abstract §7.1).
+  That test is importing the map.
+
+### 13.4 Late admission
+
+Draft-1 requires `requestedAt` within the clock skew, so a trustee first
+reached later in a longer session refuses it. The client cannot fix that
+without changing the session.
+
+- `begin-recovery` becomes a signed request (§6.6) carrying `session`,
+  signed with the session's proof key.
+- §6.6 freshness applies to its `issuedAt`. Its `requestId` is a nonce; the
+  `sessionId` stays the idempotency key.
+- The session's `requestedAt` need only lie no later than the trustee's
+  time plus the skew, and within the policy's `sessionLifetime` of
+  `expiresAt`.
+- The cooldown still starts at this trustee's admission. When less of the
+  session remains than the cooldown, admission is refused with
+  `recovery_expired`.
+
+### 13.5 Inbox notices
+
+The notification profile `onym:recovery-notice:onym-inbox-v1` reuses Onym's
+message carriage and push path, and adds no service. In the trustee policy
+of §6.1 it is an object entry:
+
+```json
+{"profile": "onym:recovery-notice:onym-inbox-v1", "noticeKey": "<64 hex X25519>", "relays": ["wss://relay.example"], "interventionWindow": "PT12H", "required": true}
+```
+
+- **Relays** must be among the `noticeRelays` the trustee's manifest
+  declares, so a trustee never dials an address a holder chose.
+- **The inbox** is the first 8 bytes of
+  `SHA-256("sep-inbox-v1" ‖ noticeKey)`, in hex, as in
+  [UI-Message-Nostr.md](../message/UI-Message-Nostr.md) §7. The notice key
+  should be seat-scoped, never the identity's own inbox key.
+- **The event** has kind 34113, the four inbox tags and `ms`, and a fresh
+  secp256k1 signer. Its content is the base64 of an HPKE seal (§5 suite) to
+  `noticeKey`.
+  - The sealed plaintext is a signed notice: `noticeVersion`, `noticeId`,
+    `componentId`, `enrollmentId`, `enrollmentSequence`, `sessionId`,
+    `event`, `purpose`, `cooldownEndsAt`, `releaseNotBefore`, `recordedAt`
+    and `signature`.
+  - The seal's `info` is
+    `canonical("onym-recovery-notice-v1", componentId, enrollmentId, noticeId)`.
+- **Events:** begin, release, cancellation or veto, refusal, finalization,
+  supersession, revocation and closure.
+- **A real veto window.** When `required` is set, release waits until
+  `releaseNotBefore = max(cooldownEndsAt, acceptedAt + interventionWindow)`,
+  where `acceptedAt` is the first relay's `OK true` for the begin notice.
+  If no relay accepts before `expiresAt − interventionWindow`, the session
+  cannot release. Relay acceptance is not delivery to a device or a person.
+- **Polling stays.** `read-enrollment` remains the source of truth. A push
+  only wakes the holder's device, whose app must subscribe to the notice
+  inbox and register it for push; it does not today.
+
+*Gap.* Once relays enforce NIP-42 (UI-Message-Nostr §11), a trustee needs a
+relay-scoped key of its own to publish.
+
+### 13.6 Freshness anchoring
+
+§6.9 cannot see a trustee restored from an old snapshot. Consistency
+proofs alone do not help either. Suppose a veto is acknowledged while the
+anchor is unreachable, and the trustee is then restored to a snapshot taken
+at the anchor's last checkpoint: a fresh cosignature of that checkpoint
+cannot reveal the lost veto. Before a trustee holds real secrets, its anchor
+must satisfy these rules.
+
+1. **Commit before acknowledging.** Receipts for `cancel-recovery`,
+   `revoke-enrollment` and `close-enrollment` carry
+   `commitment: "pending"`. They become `"committed"` once a checkpoint
+   containing them is cosigned outside the trustee. A client retries until
+   it holds a committed receipt.
+2. **Admission in anchored time.** The cooldown runs from the anchor's
+   timestamp for the first checkpoint that contains the admission, not from
+   local time.
+3. **A fresh anchor at release.** A release needs a new cosignature over a
+   checkpoint that includes the trustee's current state.
+4. **Restore quarantine.** At boot, and after any disagreement with the
+   anchor, releases wait for reconciliation. Protective operations continue,
+   marked pending.
+
+The preferred mechanism is [C2SP tlog-witness](https://c2sp.org/tlog-witness@v1.0.0):
+checkpoints of an append-only log of security transitions, cosigned by at
+least one witness in another trust domain. For a single witness, a
+separately administered compare-and-set checkpoint is equivalent. Witnesses
+learn only the log's size, root and timing, and nothing is published to a
+ledger (abstract §10).
+
+A veto still pending when a trustee is restored, from a holder whose device
+is then lost, remains lost; the rules make that visible, not impossible.
 
 ## References
 
