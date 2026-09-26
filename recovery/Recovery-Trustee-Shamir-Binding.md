@@ -414,6 +414,31 @@ must not depend on whether an enrollment exists.
 
 The reference implementation follows this order.
 
+**Client.** A conforming client, beyond abstract §8:
+
+1. Parses every response with §2's rules and verifies every manifest,
+   receipt and contribution signature with the operator key it pinned. It
+   requires the fields a response must repeat: `componentId`, `operation`,
+   `requestId` and the bindings.
+2. Accepts only the codes of abstract §15, `invalid_request` and
+   `request_conflict`, and only §6.7's state names; anything else is
+   malformed. It shows no trustee text that has not passed these checks,
+   and shows printable text only.
+3. Declares an enrollment only once all n receipts verify and the encrypted
+   recovery map is saved and reads back. If anything fails, or is
+   interrupted, before that, it closes every slot it opened.
+4. At recovery:
+   - requires distinct slots and member indices;
+   - verifies the holder's signature on every returned envelope, so a
+     trustee can withhold a share but not substitute one;
+   - combines exactly t shares;
+   - imports only after the artifact's AEAD and identity binding check.
+5. Treats a response without an `error` code as a transport failure (§6.8),
+   and a receipt as historical (§6.7).
+
+The reference client follows these rules and tests them against trustees
+that return hostile codes, states, times and names.
+
 ## 8. Test vectors
 
 The reference core's fixtures use fixed test seeds: `0x11…` for the holder
